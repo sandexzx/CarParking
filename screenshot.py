@@ -103,6 +103,15 @@ def analyze_screenshot():
     roi_y2 = int(height * 0.26)  # 80% от высоты
     roi = image[roi_y1:roi_y2, roi_x1:roi_x2]
 
+    # Шаблон для дополнительной ROI зоны (нужно подстроить проценты)
+    roi2_x1 = int(width * 0.06)  # XX% от ширины
+    roi2_y1 = int(height * 0.39)  # XX% от высоты
+    roi2_x2 = int(width * 0.96)  # XX% от ширины
+    roi2_y2 = int(height * 0.76)  # XX% от высоты
+    roi2 = image[roi2_y1:roi2_y2, roi2_x1:roi2_x2]
+    cv2.imwrite("roi2.png", roi2)
+    print("Дополнительная ROI сохранена как roi2.png")
+
     # Преобразуем в HSV
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
 
