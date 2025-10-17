@@ -4,6 +4,46 @@ import os
 import cv2
 import numpy as np
 
+# Минимальные значения насыщенности и яркости для цветовых масок.
+DEFAULT_SAT_MIN = 160
+DEFAULT_VAL_MIN = 200
+
+# Порядок важен: если диапазоны пересекаются, приоритет получает более ранний цвет.
+COLOR_CONFIG = [
+    ("yellow", {"ranges": [(20, 35)]}),
+    ("green", {"ranges": [(45, 85)]}),
+    ("cyan", {"ranges": [(80, 100)]}),
+    ("blue", {"ranges": [(100, 130)]}),
+    ("violet", {"ranges": [(130, 145)], "sat_min": 150}),
+    ("pink", {"ranges": [(145, 170)], "sat_min": 140}),
+    ("red", {"ranges": [(0, 10), (170, 180)], "sat_min": 130, "val_min": 180}),
+]
+
+
+def build_color_masks(hsv):
+    """Собирает маски по цветам без пересечений и возвращает их вместе с общей маской."""
+    color_masks = {}
+    combined_mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
+    occupied = np.zeros_like(combined_mask)
+
+    for name, cfg in COLOR_CONFIG:
+        sat_min = cfg.get("sat_min", DEFAULT_SAT_MIN)
+        val_min = cfg.get("val_min", DEFAULT_VAL_MIN)
+
+        mask = np.zeros_like(combined_mask)
+        for h_low, h_high in cfg["ranges"]:
+            lower = np.array([h_low, sat_min, val_min], dtype=np.uint8)
+            upper = np.array([h_high, 255, 255], dtype=np.uint8)
+            mask = cv2.bitwise_or(mask, cv2.inRange(hsv, lower, upper))
+
+        # Убираем пересечения с уже занятыми пикселями.
+        mask = cv2.bitwise_and(mask, cv2.bitwise_not(occupied))
+        color_masks[name] = mask
+        combined_mask = cv2.bitwise_or(combined_mask, mask)
+        occupied = cv2.bitwise_or(occupied, mask)
+
+    return color_masks, combined_mask
+
 def run_command(command):
     """Выполняет команду и возвращает код возврата, stdout и stderr."""
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
@@ -74,22 +114,16 @@ def analyze_screenshot():
     cv2.imwrite("hsv.png", hsv)
     print("HSV сохранен как hsv.png")
 
-    S, V = 160, 200
-    def m(h1, h2): return cv2.inRange(hsv, np.array([h1, S, V]), np.array([h2, 255, 255]))
-
-    mask_y = m(20, 35)
-    mask_b = m(90, 130)
-    mask_r = cv2.bitwise_or(m(0, 10), m(170, 179))
-    mask = cv2.bitwise_or(cv2.bitwise_or(mask_y, mask_b), mask_r)
+    color_masks, combined_mask = build_color_masks(hsv)
 
     # Сохраняем объединенную маску
-    cv2.imwrite("mask_combined.png", mask)
+    cv2.imwrite("mask_combined.png", combined_mask)
     print("Объединенная маска сохранена как mask_combined.png")
 
     # морфология
     k3 = np.ones((3, 3), np.uint8)
     k5 = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k3, iterations=1)
+    mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, k3, iterations=1)
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k5, iterations=1)
 
     # Сохраняем маску после морфологии
@@ -104,6 +138,7 @@ def analyze_screenshot():
     cv2.imwrite("contours.png", contour_img)
     print("Контуры сохранены как contours.png")
 
+    color_names = [name for name, _ in COLOR_CONFIG]
     cands = []
     for c in cnts:
         a = cv2.contourArea(c)
@@ -121,12 +156,11 @@ def analyze_screenshot():
         core = cv2.erode(cmask, np.ones((5, 5), np.uint8), iterations=1)
 
         # подсчет пикселей каждого цвета в ядре
-        ny = cv2.countNonZero(cv2.bitwise_and(mask_y, core))
-        nb = cv2.countNonZero(cv2.bitwise_and(mask_b, core))
-        nr = cv2.countNonZero(cv2.bitwise_and(mask_r, core))
-
-        colors = ["yellow", "blue", "red"]
-        color = colors[np.argmax([ny, nb, nr])]
+        counts = [
+            cv2.countNonZero(cv2.bitwise_and(color_masks[name], core))
+            for name in color_names
+        ]
+        color = color_names[int(np.argmax(counts))]
 
         cands.append((x + roi_x1, y + roi_y1, w, h, color))
 

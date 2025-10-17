@@ -1,5 +1,5 @@
 import cv2
-img = cv2.imread("roi.png")
+img = cv2.imread("screenshot.png")
 hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
 def show_hsv(event, x, y, flags, param):
